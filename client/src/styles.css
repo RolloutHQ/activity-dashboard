@@ -56,14 +56,25 @@ body {
   font-size: 13px;
 }
 
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+}
+
 .navLink {
   display: block;
+  width: 100%;
+  text-align: left;
   color: #dce4ff;
   text-decoration: none;
+  border: 0;
+  background: transparent;
   padding: 10px 12px;
   border-radius: 10px;
   margin: 3px 0;
+  font: inherit;
   font-size: 15px;
+  cursor: pointer;
 }
 
 .navLink.active,
@@ -135,32 +146,6 @@ body {
   font-size: 14px;
 }
 
-.manualCredentialRow {
-  margin-top: 12px;
-  display: flex;
-  gap: 8px;
-}
-
-.manualCredentialRow input {
-  flex: 1;
-  border: 1px solid var(--line);
-  background: #f8faff;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font: inherit;
-}
-
-.manualCredentialRow button {
-  border: 1px solid #2043b8;
-  background: var(--primary);
-  color: #fff;
-  border-radius: 10px;
-  padding: 10px 14px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
 .recentCredentials {
   margin-top: 10px;
 }
@@ -168,53 +153,65 @@ body {
 .selectedCredentialText {
   margin: 4px 0 0;
   color: #4b5a8b;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
-.pillWrap {
+.credentialButtonWrap {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.credentialButton {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #cbd5f2;
-  background: #f5f8ff;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px solid #ccd6f4;
+  background: linear-gradient(180deg, #f8faff 0%, #f3f6ff 100%);
   color: #2f3f71;
-  border-radius: 999px;
+  border-radius: 12px;
   font-size: 12px;
-  padding: 7px 12px;
+  padding: 10px 12px;
   cursor: pointer;
-  opacity: 0.72;
   transition: transform 120ms ease, box-shadow 160ms ease, opacity 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
 }
 
-.pill:hover {
-  opacity: 0.95;
+.credentialButton:hover {
+  transform: translateY(-1px);
   border-color: #8ea6f2;
+  box-shadow: 0 6px 16px rgba(53, 94, 240, 0.16);
 }
 
-.pill.active {
-  opacity: 1;
+.credentialButton.active {
   color: #ffffff;
   border-color: #1f46c8;
-  background: linear-gradient(135deg, #355ef0 0%, #2549ca 100%);
-  box-shadow: 0 8px 18px rgba(32, 71, 197, 0.34);
+  background: linear-gradient(140deg, #3d66f0 0%, #274ccd 100%);
+  box-shadow: 0 10px 20px rgba(32, 71, 197, 0.32);
 }
 
-.pill.active:hover {
-  transform: translateY(-1px);
+.credentialApp {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: #5a6ca5;
 }
 
-.pillText {
-  max-width: 260px;
+.credentialButton.active .credentialApp {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.credentialIdText {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 20px;
+  line-height: 1.15;
+  font-family: "Newsreader", serif;
 }
 
 .pillBadge {
@@ -223,6 +220,7 @@ body {
   padding: 2px 7px;
   font-size: 10px;
   letter-spacing: 0.02em;
+  margin-top: 4px;
 }
 
 .filters {
@@ -410,7 +408,4 @@ body {
     align-items: flex-start;
   }
 
-  .manualCredentialRow {
-    flex-direction: column;
-  }
 }

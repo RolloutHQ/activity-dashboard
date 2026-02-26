@@ -2,7 +2,7 @@
 
 Lightweight Express server + React 18 dashboard that:
 
-- Uses Rollout Connect (`@rollout/connect-react`) to select a credential.
+- Uses Rollout Link (`@rollout/link-react`) for credential input and credential management.
 - Mints Rollout JWTs on the backend (`HS512`, `iss/sub/exp`).
 - Loads KPI + trend data from Postgres `public.rollout_%` tables by `credentialId`.
 

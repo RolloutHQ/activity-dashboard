@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RolloutConnectProvider, CredentialInput } from "@rollout/connect-react";
+import {
+  RolloutLinkProvider,
+  CredentialsManager,
+} from "@rollout/link-react";
 import {
   Area,
   AreaChart,
@@ -21,6 +24,11 @@ const RANGE_OPTIONS = [
   { label: "12M", value: 365 },
 ];
 
+const PAGES = [
+  { key: "overview", label: "Agent Activity Overview" },
+  { key: "integrations", label: "Integrations" },
+];
+
 const FALLBACK_METRIC_OPTIONS = [
   { key: "contactsMade", label: "Contacts Made" },
   { key: "newLeadsAssigned", label: "New Leads Assigned" },
@@ -28,6 +36,16 @@ const FALLBACK_METRIC_OPTIONS = [
   { key: "textsSent", label: "Texts Sent (Manual)" },
   { key: "emailsSent", label: "Emails Sent (Manual)" },
 ];
+
+const LOCAL_API_HINT =
+  "Run `npm run dev` so both the API server (:4000) and Vite client (:5173) are running.";
+
+const APP_NAME_OVERRIDES = {
+  "follow-up-boss": "Follow Up Boss",
+  "follow_up_boss": "Follow Up Boss",
+  fub: "Follow Up Boss",
+  mls: "MLS",
+};
 
 async function fetchJson(url) {
   const response = await fetch(url);
@@ -45,6 +63,24 @@ function formatNumber(value) {
 function formatDateLabel(value) {
   const date = new Date(`${value}T00:00:00Z`);
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatAppName(appKey) {
+  if (!appKey) return "Unknown App";
+  const normalized = String(appKey).trim().toLowerCase();
+  if (APP_NAME_OVERRIDES[normalized]) return APP_NAME_OVERRIDES[normalized];
+
+  return normalized
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean)
+    .map((segment) =>
+      segment.length <= 3 ? segment.toUpperCase() : `${segment[0].toUpperCase()}${segment.slice(1)}`,
+    )
+    .join(" ");
+}
+
+function credentialIdFromItem(item) {
+  return item?.credentialId || item?.id || "";
 }
 
 function TinySparkline({ points }) {
@@ -173,44 +209,70 @@ function DashboardView({ summary, selectedMetric, onChangeMetric }) {
 }
 
 export default function App() {
+  const [activePage, setActivePage] = useState("overview");
   const [selectedCredential, setSelectedCredential] = useState("");
-  const [manualCredential, setManualCredential] = useState("");
   const [rangeDays, setRangeDays] = useState(90);
   const [selectedMetric, setSelectedMetric] = useState("contactsMade");
 
   const configQuery = useQuery({
     queryKey: ["config"],
     queryFn: () => fetchJson("/api/config"),
+    retry: false,
   });
 
   const credentialsQuery = useQuery({
     queryKey: ["credentials"],
     queryFn: () => fetchJson("/api/credentials"),
+    retry: false,
   });
 
   useEffect(() => {
-    if (selectedCredential || manualCredential) return;
-    const firstCredential = credentialsQuery.data?.credentials?.[0]?.credentialId;
+    if (selectedCredential) return;
+    const firstCredential = credentialIdFromItem(credentialsQuery.data?.credentials?.[0]);
     if (firstCredential) {
       setSelectedCredential(firstCredential);
     }
-  }, [credentialsQuery.data, selectedCredential, manualCredential]);
+  }, [credentialsQuery.data, selectedCredential]);
 
-  const credentialId = selectedCredential || manualCredential;
+  const credentialId = selectedCredential;
 
   const dashboardQuery = useQuery({
     queryKey: ["dashboard", credentialId, rangeDays, selectedMetric],
-    enabled: Boolean(credentialId),
+    enabled: Boolean(credentialId) && activePage === "overview",
     queryFn: () =>
       fetchJson(
         `/api/dashboard/summary?credentialId=${encodeURIComponent(credentialId)}&rangeDays=${rangeDays}&metric=${encodeURIComponent(selectedMetric)}`,
       ),
+    retry: false,
+  });
+
+  const rolloutAppKey = configQuery.data?.rolloutAppKey || "";
+  const rolloutApiBaseUrl = configQuery.data?.rolloutApiBaseUrl;
+  const defaultUserId = configQuery.data?.defaultUserId || "user123";
+
+  const rolloutTokenQuery = useQuery({
+    queryKey: ["rollout-token-ready", defaultUserId],
+    enabled: Boolean(rolloutAppKey) && !configQuery.isLoading && !configQuery.isError,
+    queryFn: () => fetchJson(`/api/rollout/token?userId=${encodeURIComponent(defaultUserId)}`),
+    retry: false,
   });
 
   const generateToken = async (userId) => {
-    const effectiveUser = userId || configQuery.data?.defaultUserId || "user123";
+    const effectiveUser = userId || defaultUserId;
     const result = await fetchJson(`/api/rollout/token?userId=${encodeURIComponent(effectiveUser)}`);
     return result.token;
+  };
+
+  const handleLinkCredentialAdded = ({ id }) => {
+    setSelectedCredential(id);
+    credentialsQuery.refetch();
+  };
+
+  const handleLinkCredentialDeleted = ({ id }) => {
+    if (selectedCredential === id) {
+      setSelectedCredential("");
+    }
+    credentialsQuery.refetch();
   };
 
   return (
@@ -219,130 +281,167 @@ export default function App() {
         <h1 className="brand">Rollout</h1>
         <p className="brandSub">CRM Activity Console</p>
         <nav>
-          <a className="navLink active" href="#overview">Agent Activity Overview</a>
-          <a className="navLink" href="#overview">Communication</a>
-          <a className="navLink" href="#overview">Business Trend</a>
+          {PAGES.map((page) => (
+            <button
+              key={page.key}
+              type="button"
+              className={activePage === page.key ? "navLink active" : "navLink"}
+              onClick={() => setActivePage(page.key)}
+            >
+              {page.label}
+            </button>
+          ))}
         </nav>
       </aside>
 
       <div className="content">
-        <header className="topBar" id="overview">
+        <header className="topBar">
           <div>
-            <p className="eyebrow">Reporting</p>
-            <h2>Agent Activity Overview</h2>
+            <p className="eyebrow">{activePage === "overview" ? "Reporting" : "Configuration"}</p>
+            <h2>{activePage === "overview" ? "Agent Activity Overview" : "Integrations"}</h2>
           </div>
-          <span className="refreshTag">Last Updated: Just now</span>
+          <span className="refreshTag">
+            {activePage === "overview"
+              ? "Last Updated: Just now"
+              : `Selected Credential: ${credentialId || "None"}`}
+          </span>
         </header>
 
-        <section className="integrationPanel">
-          <div className="integrationHeader">
-            <h3>1. Connect via Rollout</h3>
-            <p>Use the Rollout credential picker or paste an existing credential ID below.</p>
-          </div>
-
-          {configQuery.isLoading ? (
-            <p className="muted">Loading Rollout config…</p>
-          ) : null}
-
-          {configQuery.isError ? (
-            <p className="error">{configQuery.error.message}</p>
-          ) : null}
-
-          {configQuery.data?.rolloutAppKey ? (
-            <RolloutConnectProvider
-              apiBaseUrl={configQuery.data.rolloutApiBaseUrl}
-              tokenGenerationFn={generateToken}
-            >
-              <CredentialInput
-                appKey={configQuery.data.rolloutAppKey}
-                value={selectedCredential}
-                onChange={setSelectedCredential}
-              />
-            </RolloutConnectProvider>
-          ) : (
-            <p className="muted">
-              Set `ROLLOUT_APP_KEY` and `ROLLOUT_API_BASE_URL` in `.env` to enable inline connect.
-            </p>
-          )}
-
-          <div className="manualCredentialRow">
-            <input
-              type="text"
-              placeholder="or paste credentialId..."
-              value={manualCredential}
-              onChange={(event) => setManualCredential(event.target.value.trim())}
-            />
-            <button type="button" onClick={() => dashboardQuery.refetch()}>
-              Load Dashboard
-            </button>
-          </div>
-
-          {!!credentialsQuery.data?.credentials?.length && (
-            <div className="recentCredentials">
-              <p className="label">Recent credentials</p>
-              <p className="selectedCredentialText">
-                Selected: {credentialId || "None"}
-              </p>
-              <div className="pillWrap">
-                {credentialsQuery.data.credentials.slice(0, 8).map((item) => {
-                  const isSelected = credentialId === item.credentialId;
-
-                  return (
-                    <button
-                      type="button"
-                      key={item.credentialId}
-                      className={isSelected ? "pill active" : "pill"}
-                      aria-pressed={isSelected}
-                      onClick={() => {
-                        setSelectedCredential(item.credentialId);
-                        setManualCredential("");
-                      }}
-                    >
-                      <span className="pillText">{item.credentialId}</span>
-                      {isSelected ? <span className="pillBadge">Selected</span> : null}
-                    </button>
-                  );
-                })}
-              </div>
+        {activePage === "integrations" ? (
+          <section className="integrationPanel">
+            <div className="integrationHeader">
+              <h3>Rollout Credentials Manager</h3>
+              <p>Use Rollout Link to create, remove, and manage CRM credentials.</p>
             </div>
-          )}
-        </section>
 
-        <section className="filters">
-          {RANGE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={option.value === rangeDays ? "chip active" : "chip"}
-              onClick={() => setRangeDays(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </section>
+            {configQuery.isLoading ? (
+              <p className="muted">Loading Rollout config…</p>
+            ) : null}
 
-        {dashboardQuery.isError && <p className="error">{dashboardQuery.error.message}</p>}
+            {configQuery.isError ? (
+              <p className="error">{`${configQuery.error.message}. ${LOCAL_API_HINT}`}</p>
+            ) : null}
 
-        {!credentialId ? (
-          <div className="emptyState">
-            <h3>Choose or connect a credential to start</h3>
-            <p>This dashboard appears after Rollout integration selection.</p>
-          </div>
-        ) : null}
+            {!configQuery.isLoading && !configQuery.isError && !rolloutAppKey ? (
+              <p className="muted">
+                Set `ROLLOUT_APP_KEY` in `.env` to enable the credentials manager.
+              </p>
+            ) : null}
 
-        {dashboardQuery.isLoading && credentialId ? (
-          <div className="emptyState">
-            <h3>Loading dashboard…</h3>
-          </div>
-        ) : null}
+            {rolloutAppKey && rolloutTokenQuery.isLoading ? (
+              <p className="muted">Checking Rollout token service…</p>
+            ) : null}
 
-        {dashboardQuery.data ? (
-          <DashboardView
-            summary={dashboardQuery.data}
-            selectedMetric={selectedMetric}
-            onChangeMetric={setSelectedMetric}
-          />
-        ) : null}
+            {rolloutAppKey && rolloutTokenQuery.isError ? (
+              <p className="error">
+                {`${rolloutTokenQuery.error.message}. Ensure ROLLOUT_CLIENT_SECRET and ROLLOUT_PROJECT_KEY (or ROLLOUT_CLIENT_ID) are set.`}
+              </p>
+            ) : null}
+
+            {rolloutAppKey && !rolloutTokenQuery.isLoading && !rolloutTokenQuery.isError ? (
+              <RolloutLinkProvider token={generateToken} apiBaseUrl={rolloutApiBaseUrl}>
+                <CredentialsManager
+                  apiCategories={{ crm: true }}
+                  onCredentialAdded={handleLinkCredentialAdded}
+                  onCredentialDeleted={handleLinkCredentialDeleted}
+                />
+              </RolloutLinkProvider>
+            ) : null}
+          </section>
+        ) : (
+          <>
+            <section className="integrationPanel">
+              <div className="integrationHeader">
+                <h3>1. Select a credential</h3>
+                <p>Pick a credential button below. Each button shows its connected app.</p>
+              </div>
+
+              {credentialsQuery.isLoading ? (
+                <p className="muted">Loading credentials…</p>
+              ) : null}
+
+              {credentialsQuery.isError ? (
+                <p className="error">{`${credentialsQuery.error.message}. ${LOCAL_API_HINT}`}</p>
+              ) : null}
+
+              {!!credentialsQuery.data?.credentials?.length && (
+                <div className="recentCredentials">
+                  <p className="selectedCredentialText">
+                    Selected: {credentialId || "None"}
+                  </p>
+                  <div className="credentialButtonWrap">
+                    {credentialsQuery.data.credentials.slice(0, 12).map((item) => {
+                      const credentialIdValue = credentialIdFromItem(item);
+                      if (!credentialIdValue) return null;
+                      const isSelected = credentialId === credentialIdValue;
+                      const appName = formatAppName(item.appKey);
+
+                      return (
+                        <button
+                          type="button"
+                          key={credentialIdValue}
+                          className={isSelected ? "credentialButton active" : "credentialButton"}
+                          aria-pressed={isSelected}
+                          onClick={() => {
+                            setSelectedCredential(credentialIdValue);
+                          }}
+                        >
+                          <span className="credentialApp">{appName}</span>
+                          <span className="credentialIdText">{credentialIdValue}</span>
+                          {isSelected ? <span className="pillBadge">Selected</span> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {!credentialsQuery.isLoading &&
+              !credentialsQuery.isError &&
+              !credentialsQuery.data?.credentials?.length ? (
+                <p className="muted">
+                  No credentials found yet. Use the Integrations tab to connect one.
+                </p>
+              ) : null}
+            </section>
+
+            <section className="filters">
+              {RANGE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={option.value === rangeDays ? "chip active" : "chip"}
+                  onClick={() => setRangeDays(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </section>
+
+            {dashboardQuery.isError && <p className="error">{dashboardQuery.error.message}</p>}
+
+            {!credentialId ? (
+              <div className="emptyState">
+                <h3>Choose or connect a credential to start</h3>
+                <p>This dashboard appears after Rollout integration selection.</p>
+              </div>
+            ) : null}
+
+            {dashboardQuery.isLoading && credentialId ? (
+              <div className="emptyState">
+                <h3>Loading dashboard…</h3>
+              </div>
+            ) : null}
+
+            {dashboardQuery.data ? (
+              <DashboardView
+                summary={dashboardQuery.data}
+                selectedMetric={selectedMetric}
+                onChangeMetric={setSelectedMetric}
+              />
+            ) : null}
+          </>
+        )}
       </div>
     </main>
   );
